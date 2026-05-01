@@ -12,7 +12,7 @@ import {
   Sparkles,
   Wallet,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CRYPTO_ROOM_DEXSCREENER_URL,
   CRYPTO_ROOM_PAIR_ADDRESS,
@@ -79,7 +79,7 @@ const parseMonitorTarget = (raw: string) => {
 
 export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
   const [activeTab, setActiveTab] = useState<TabKey>("market");
-  const [iframeSrc, setIframeSrc] = useState(CRYPTO_ROOM_DEXSCREENER_URL);
+  const [monitorUrl, setMonitorUrl] = useState(CRYPTO_ROOM_DEXSCREENER_URL);
   const [addressInput, setAddressInput] = useState(CRYPTO_ROOM_DEXSCREENER_URL);
   const [pairLookupInput, setPairLookupInput] = useState("");
   const [browsedPair, setBrowsedPair] = useState<CryptoTrackedPair | null>(null);
@@ -87,6 +87,47 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
   const [browsedPairError, setBrowsedPairError] = useState<string | null>(null);
   const state = useCryptoRoomState(agents);
   const launch = useCryptoLaunchState();
+  const approvalsCount = state.approvals.length;
+  const ledgerCount = state.ledger.length;
+  const initialMonitorUrlRef = useRef(monitorUrl);
+
+  useEffect(() => {
+    console.info("[crypto-room] screen mounted", {
+      agents: agents.length,
+      initialMonitorUrl: initialMonitorUrlRef.current,
+    });
+    return () => {
+      console.info("[crypto-room] screen unmounted");
+    };
+  }, [agents.length]);
+
+  useEffect(() => {
+    console.info("[crypto-room] screen state changed", {
+      activeTab,
+      monitorUrl,
+      pairLoading: state.pairLoading,
+      hasPair: Boolean(state.pair),
+      pairError: state.pairError,
+      browsedPairLoading,
+      hasBrowsedPair: Boolean(browsedPair),
+      browsedPairError,
+      walletConnected: state.wallet.connected,
+      ledgerCount,
+      approvalsCount,
+    });
+  }, [
+    activeTab,
+    approvalsCount,
+    browsedPair,
+    browsedPairError,
+    browsedPairLoading,
+    ledgerCount,
+    monitorUrl,
+    state.pair,
+    state.pairError,
+    state.pairLoading,
+    state.wallet.connected,
+  ]);
 
   const pendingApprovals = useMemo(
     () => state.approvals.filter((approval) => approval.status === "pending"),
@@ -94,10 +135,12 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
   );
 
   const syncBrowsedPair = async (lookupId: string | null) => {
+    console.info("[crypto-room] sync browsed pair requested", { lookupId });
     if (!lookupId || lookupId === CRYPTO_ROOM_PAIR_ADDRESS) {
       setBrowsedPair(null);
       setBrowsedPairError(null);
       setBrowsedPairLoading(false);
+      console.info("[crypto-room] sync browsed pair skipped", { lookupId });
       return;
     }
     try {
@@ -114,8 +157,16 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
         throw new Error(payload.error?.trim() || "Unable to load DexScreener pair data.");
       }
       setBrowsedPair(payload.pair);
+      console.info("[crypto-room] sync browsed pair succeeded", {
+        lookupId,
+        pairAddress: payload.pair.pairAddress,
+      });
     } catch (error) {
       setBrowsedPair(null);
+      console.error("[crypto-room] sync browsed pair failed", {
+        lookupId,
+        error,
+      });
       setBrowsedPairError(
         error instanceof Error ? error.message : "Unable to load DexScreener pair data.",
       );
@@ -126,18 +177,25 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
 
   const navigateMonitor = async (raw: string) => {
     const target = parseMonitorTarget(raw);
-    setIframeSrc(target.url);
+    console.info("[crypto-room] navigate monitor", {
+      raw,
+      target,
+    });
+    setMonitorUrl(target.url);
     setAddressInput(target.url);
     setPairLookupInput(target.lookupId ?? "");
     await syncBrowsedPair(target.lookupId);
   };
 
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-[radial-gradient(circle_at_top,#091923_0%,#04070d_35%,#010203_100%)] text-white">
+    <div
+      className="relative w-full text-white"
+      style={{ backgroundColor: "#01060a" }}
+    >
       <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(38,189,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(38,189,255,0.08)_1px,transparent_1px)] [background-size:20px_20px]" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.18),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(56,189,248,0.15),transparent_35%)]" />
-      <div className="relative flex min-h-full flex-col px-8 py-7">
-        <div className="flex flex-wrap items-start justify-between gap-6">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.1),transparent_30%)]" />
+      <div className="relative flex w-full flex-col px-8 pb-32 pt-28">
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-6">
           <div>
             <div className="flex items-center gap-3 text-[12px] uppercase tracking-[0.28em] text-cyan-200/70">
               <CandlestickChart className="h-4 w-4" />
@@ -148,13 +206,13 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
             </h2>
             <p className="mt-3 max-w-3xl text-[14px] leading-6 text-cyan-100/70">
               The art room now runs as a monitored Solana room with DexScreener
-              on the wall, Phantom-only signing, local trade reports, and agent
-              trade queues that still stop for explicit wallet approval.
+              links, Phantom-only signing, local trade reports, and agent trade
+              queues that still stop for explicit wallet approval.
             </p>
           </div>
 
           <div className="flex w-full flex-col gap-4 xl:flex-row">
-            <div className="flex-1 rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
+            <div className="w-full rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)] xl:w-[380px] xl:flex-none 2xl:w-[420px]">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-200/58">
@@ -241,7 +299,7 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
               ) : null}
             </div>
 
-            <div className="w-full rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)] xl:w-[340px]">
+            <div className="w-full rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)] xl:min-w-0 xl:flex-1">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-200/58">
@@ -274,10 +332,13 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
                         <button
                           key={holding.mint}
                           type="button"
-                          onClick={() => {
-                            setActiveTab("market");
-                            void navigateMonitor(holding.mint);
-                          }}
+                          onClick={() =>
+                            window.open(
+                              `https://dexscreener.com/solana/${holding.mint}`,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          }
                           className="flex items-center gap-2.5 rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2 transition-colors hover:border-cyan-400/25 hover:bg-white/[0.06]"
                         >
                           {holding.imageUrl ? (
@@ -318,7 +379,7 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
               )}
             </div>
 
-            <div className="w-full rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)] xl:w-[340px]">
+            <div className="w-full rounded-[28px] border border-cyan-400/15 bg-black/30 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)] xl:w-[300px]">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-200/58">
@@ -366,7 +427,7 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
           </div>
         </div>
 
-        <div className="mt-7 flex flex-wrap gap-2">
+        <div className="mt-7 flex shrink-0 flex-wrap gap-2">
           {[
             {
               key: "market" as const,
@@ -410,11 +471,11 @@ export function CryptoImmersiveScreen({ agents }: { agents: OfficeAgent[] }) {
           ))}
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 pb-8 pr-2">
           {activeTab === "market" ? (
             <MarketTab
               state={state}
-              iframeSrc={iframeSrc}
+              monitorUrl={monitorUrl}
               addressInput={addressInput}
               pairLookupInput={pairLookupInput}
               browsedPair={browsedPair}
@@ -456,7 +517,7 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
 
 function MarketTab({
   state,
-  iframeSrc,
+  monitorUrl,
   addressInput,
   pairLookupInput,
   browsedPair,
@@ -468,7 +529,7 @@ function MarketTab({
   onLookup,
 }: {
   state: ReturnType<typeof useCryptoRoomState>;
-  iframeSrc: string;
+  monitorUrl: string;
   addressInput: string;
   pairLookupInput: string;
   browsedPair: CryptoTrackedPair | null;
@@ -486,17 +547,17 @@ function MarketTab({
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.25fr)_420px]">
       <SectionCard
-        title="Wall monitors"
+        title="Market monitor"
         subtitle="Type any token address or DexScreener URL in the bar below and press Enter."
         action={
           <button
             type="button"
             onClick={() =>
-              window.open(iframeSrc, "_blank", "noopener,noreferrer")
+              window.open(monitorUrl, "_blank", "noopener,noreferrer")
             }
             className="rounded-full border border-white/12 bg-white/6 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/75 transition-colors hover:bg-white/10"
           >
-            Open full browser
+            Open DexScreener
           </button>
         }
       >
@@ -531,13 +592,61 @@ function MarketTab({
               Home
             </button>
           </div>
-          <iframe
-            title="DexScreener crypto room"
-            src={iframeSrc}
-            className="h-[66vh] w-full bg-black"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            referrerPolicy="no-referrer"
-          />
+          <div className="flex min-h-[66vh] flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_36%),linear-gradient(135deg,rgba(5,15,25,0.98),rgba(0,0,0,0.96))] p-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-[22px] border border-cyan-300/12 bg-black/35 p-5">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/48">
+                  Selected market
+                </div>
+                <div className="mt-3 text-[30px] font-semibold tracking-[0.04em] text-white">
+                  {snapshotPair?.baseToken.symbol ?? "CLAW3D"}
+                  <span className="text-white/32"> / </span>
+                  {snapshotPair?.quoteToken.symbol ?? "SOL"}
+                </div>
+                <div className="mt-3 text-[13px] leading-6 text-cyan-100/62">
+                  Browser security policy prevents DexScreener from being embedded
+                  here, so Claw3D keeps the room telemetry local and opens the
+                  live chart in a separate tab.
+                </div>
+              </div>
+              <div className="rounded-[22px] border border-emerald-300/12 bg-emerald-300/[0.04] p-5">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-emerald-100/48">
+                  Live chart
+                </div>
+                <div className="mt-3 break-all font-mono text-[12px] leading-6 text-white/58">
+                  {monitorUrl}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(monitorUrl, "_blank", "noopener,noreferrer")
+                  }
+                  className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/22 bg-emerald-300/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition-colors hover:bg-emerald-300/16"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open live chart
+                </button>
+              </div>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <MetricCard
+                label="1H change"
+                value={formatSignedPct(snapshotPair?.priceChangePct.h1)}
+              />
+              <MetricCard
+                label="24H change"
+                value={formatSignedPct(snapshotPair?.priceChangePct.h24)}
+              />
+              <MetricCard
+                label="Liquidity"
+                value={compactCurrency.format(snapshotPair?.liquidityUsd ?? 0)}
+              />
+              <MetricCard
+                label="FDV"
+                value={compactCurrency.format(snapshotPair?.fdv ?? 0)}
+              />
+            </div>
+          </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
           <MetricCard
@@ -1888,8 +1997,8 @@ function Banner({
   );
 }
 
-const formatSignedPct = (value: number | null) =>
-  value === null ? "n/a" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+const formatSignedPct = (value: number | null | undefined) =>
+  value == null ? "n/a" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 
 const shorten = (value: string) =>
   value.length <= 16 ? value : `${value.slice(0, 6)}...${value.slice(-6)}`;

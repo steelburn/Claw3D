@@ -5,6 +5,7 @@ import { CRYPTO_ROOM_AGENT_LOOP_MS, CRYPTO_ROOM_APPROVAL_TTL_MS, CRYPTO_ROOM_PAI
 import { buildCryptoReportSnapshot } from "@/features/crypto/lib/pnl";
 import {
   deserializeSwapTransaction,
+  encodeBase58,
   enrichHoldingsMetadata,
   fetchTokenDecimals,
   fetchWalletSnapshot,
@@ -394,10 +395,32 @@ export function useCryptoRoomState(agents: OfficeAgent[]) {
       const transaction = deserializeSwapTransaction(payload.swapTransaction);
       const signed = await provider.signTransaction(transaction);
       const connection = getSolanaConnection();
-      const signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
+      const rawTransaction = signed.serialize();
+      let signature: string;
+      try {
+        signature = await connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: true,
+          maxRetries: 0,
+          preflightCommitment: "confirmed",
+        });
+      } catch (sendError) {
+        const sendMessage =
+          sendError instanceof Error ? sendError.message : String(sendError);
+        if (/already been processed|AlreadyProcessed/i.test(sendMessage)) {
+          const firstSig = signed.signatures[0];
+          if (!firstSig) {
+            throw sendError;
+          }
+          const fallback = encodeBase58(firstSig);
+          console.warn(
+            "[crypto-room] swap sendRawTransaction reported already-processed; treating as success",
+            { signature: fallback, message: sendMessage },
+          );
+          signature = fallback;
+        } else {
+          throw sendError;
+        }
+      }
       await connection.confirmTransaction(signature, "confirmed");
 
       const inputAmountUi = quote.inputAmountUi;

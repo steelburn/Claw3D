@@ -312,3 +312,34 @@ export const deserializeSwapTransaction = (base64Transaction: string) =>
 
 export const getTrackedToken = (pair: CryptoTrackedPair) =>
   pair.baseToken.address === SOL_MINT ? pair.quoteToken : pair.baseToken;
+
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+export const encodeBase58 = (bytes: Uint8Array): string => {
+  if (bytes.length === 0) return "";
+  let zeroes = 0;
+  while (zeroes < bytes.length && bytes[zeroes] === 0) {
+    zeroes += 1;
+  }
+  const digits = [0];
+  for (let index = zeroes; index < bytes.length; index += 1) {
+    let carry = bytes[index]!;
+    for (let digitIndex = 0; digitIndex < digits.length; digitIndex += 1) {
+      carry += digits[digitIndex]! << 8;
+      digits[digitIndex] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  let result = "";
+  for (let leadingZero = 0; leadingZero < zeroes; leadingZero += 1) {
+    result += "1";
+  }
+  for (let digitIndex = digits.length - 1; digitIndex >= 0; digitIndex -= 1) {
+    result += BASE58_ALPHABET[digits[digitIndex]!];
+  }
+  return result;
+};

@@ -15,8 +15,11 @@ import {
   X,
 } from "lucide-react";
 import {
+  Component,
   type ComponentProps,
+  type ErrorInfo,
   memo,
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -24,11 +27,11 @@ import {
   useRef,
   useState,
 } from "react";
+import dynamic from "next/dynamic";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { SettingsPanel } from "@/features/office/components/panels/SettingsPanel";
-import { CryptoImmersiveScreen } from "@/features/crypto/components/CryptoImmersiveScreen";
 import { AtmImmersiveScreen } from "@/features/office/screens/AtmImmersiveScreen";
 import { GithubImmersiveScreen } from "@/features/office/screens/GithubImmersiveScreen";
 import { KanbanImmersiveScreen } from "@/features/office/screens/KanbanImmersiveScreen";
@@ -228,6 +231,78 @@ import {
   TrailSystem as AgentTrailSystem,
 } from "@/features/retro-office/systems/visualSystems";
 import type { OfficeCleaningCue } from "@/lib/office/janitorReset";
+
+const CryptoImmersiveScreen = dynamic(
+  () =>
+    import("@/features/crypto/components/CryptoImmersiveScreen").then(
+      (mod) => mod.CryptoImmersiveScreen,
+    ),
+  {
+    ssr: false,
+    loading: () => <CryptoRoomLoadingFallback />,
+  },
+);
+
+function CryptoRoomLoadingFallback() {
+  useEffect(() => {
+    console.info("[crypto-room] dynamic loading fallback mounted");
+  }, []);
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[#01060a] text-[12px] font-semibold uppercase tracking-[0.22em] text-cyan-100/70">
+      Loading crypto room
+    </div>
+  );
+}
+
+type CryptoRoomErrorBoundaryProps = {
+  children: ReactNode;
+};
+
+type CryptoRoomErrorBoundaryState = {
+  error: Error | null;
+};
+
+class CryptoRoomErrorBoundary extends Component<
+  CryptoRoomErrorBoundaryProps,
+  CryptoRoomErrorBoundaryState
+> {
+  state: CryptoRoomErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): CryptoRoomErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[crypto-room] render error boundary caught", {
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack,
+    });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#01060a] p-8 text-white">
+          <div className="max-w-xl rounded-[24px] border border-rose-400/25 bg-rose-950/20 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-200/80">
+              Crypto room crashed
+            </div>
+            <div className="mt-3 break-words font-mono text-[13px] leading-6 text-rose-50/90">
+              {this.state.error.message}
+            </div>
+            <div className="mt-4 text-[12px] leading-6 text-white/55">
+              Check the browser console for the `[crypto-room]` error details.
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 type OfficeDeskMonitorMap = Record<string, OfficeDeskMonitor>;
 type RenderAgentUiSnapshot = Pick<RenderAgent, "state" | "status">;
@@ -4272,15 +4347,38 @@ export function RetroOffice3D({
   }, [activeAtmUid]);
 
   useEffect(() => {
+    console.info("[crypto-room] shell state changed", {
+      activeCryptoTerminalUid,
+      hasActiveCryptoTerminal: Boolean(activeCryptoTerminal),
+      cryptoImmersiveReady,
+      cryptoImmersive,
+    });
+  }, [
+    activeCryptoTerminal,
+    activeCryptoTerminalUid,
+    cryptoImmersive,
+    cryptoImmersiveReady,
+  ]);
+
+  useEffect(() => {
     const resetTimer = window.setTimeout(() => {
       setCryptoImmersiveReady(false);
     }, 0);
     if (!activeCryptoTerminalUid) {
+      console.info("[crypto-room] immersive ready reset", {
+        activeCryptoTerminalUid,
+      });
       return () => {
         window.clearTimeout(resetTimer);
       };
     }
+    console.info("[crypto-room] immersive ready timer scheduled", {
+      activeCryptoTerminalUid,
+    });
     const timer = window.setTimeout(() => {
+      console.info("[crypto-room] immersive ready timer fired", {
+        activeCryptoTerminalUid,
+      });
       setCryptoImmersiveReady(true);
     }, 900);
     return () => {
@@ -4748,6 +4846,12 @@ export function RetroOffice3D({
         return;
       }
       if (item.type === "crypto_board" || item.type === "crypto_terminal") {
+        console.info("[crypto-room] crypto furniture selected", {
+          uid,
+          type: item.type,
+          x: item.x,
+          y: item.y,
+        });
         setFollowAgentId(null);
         setActiveAtmUid(null);
         setActiveGithubTerminalUid(null);
@@ -6665,26 +6769,33 @@ export function RetroOffice3D({
       ) : null}
 
       {cryptoImmersive ? (
-        <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.12),rgba(0,0,0,0.92))]" />
-          <div className="absolute inset-x-0 top-0 h-[9vh] bg-black" />
-          <div className="absolute inset-x-0 bottom-0 h-[12vh] bg-black" />
-          <div className="absolute inset-y-0 left-0 w-[5vw] bg-black" />
-          <div className="absolute inset-y-0 right-0 w-[5vw] bg-black" />
-          <div className="absolute inset-[4.8vh_4.8vw_7.2vh_4.8vw] rounded-[30px] border border-cyan-300/16 bg-[#020812] shadow-[0_0_0_18px_rgba(1,5,16,0.96),0_0_0_22px_rgba(34,211,238,0.12),0_30px_120px_rgba(0,0,0,0.78)]" />
-          <div className="absolute inset-[5.6vh_5.6vw_8vh_5.6vw] rounded-[24px] border border-cyan-300/12 bg-[#030c14]" />
-          <div className="pointer-events-auto absolute inset-[5.8vh_5.8vw_8.2vh_5.8vw] overflow-hidden rounded-[22px] bg-[#01060a]">
-            <CryptoImmersiveScreen agents={agents} />
+        <div
+          className="pointer-events-none fixed inset-0 z-50 overflow-hidden"
+          style={{ height: "100vh", width: "100vw" }}
+        >
+          <div className="absolute inset-0 bg-[#01060a]" />
+          <div
+            id="crypto-room-scroll-panel"
+            className="pointer-events-auto absolute overflow-x-hidden overflow-y-auto overscroll-contain rounded-[22px] bg-[#01060a]"
+            style={{
+              top: "8vh",
+              bottom: "6vh",
+              left: "5vw",
+              right: "5vw",
+            }}
+          >
+            <CryptoRoomErrorBoundary>
+              <CryptoImmersiveScreen agents={agents} />
+            </CryptoRoomErrorBoundary>
           </div>
-          <div className="pointer-events-auto absolute right-[5.8vw] top-[4.2vh] flex items-center gap-3 rounded-full border border-cyan-300/18 bg-[#04111b]/88 px-4 py-2 backdrop-blur-sm">
-            <div className="h-2 w-2 rounded-full bg-emerald-400" />
-            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/90">
-              Crypto Room
-            </div>
+          <div
+            className="pointer-events-auto absolute z-[60]"
+            style={{ right: "5.5vw", top: "2vh" }}
+          >
             <button
               type="button"
               onClick={() => setActiveCryptoTerminalUid(null)}
-              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/70 transition-colors hover:border-white/20 hover:text-white"
+              className="rounded-full border border-cyan-300/18 bg-[#04111b] px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100/90 shadow-[0_0_24px_rgba(34,211,238,0.12)] transition-colors hover:border-cyan-200/35 hover:text-white"
             >
               Exit
             </button>

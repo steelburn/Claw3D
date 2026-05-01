@@ -139,6 +139,35 @@ function decodeBase58(value: string): Uint8Array {
   return Uint8Array.from(bytes.reverse());
 }
 
+function bs58Encode(bytes: Uint8Array): string {
+  if (bytes.length === 0) return "";
+  let zeroes = 0;
+  while (zeroes < bytes.length && bytes[zeroes] === 0) {
+    zeroes += 1;
+  }
+  const digits = [0];
+  for (let index = zeroes; index < bytes.length; index += 1) {
+    let carry = bytes[index]!;
+    for (let digitIndex = 0; digitIndex < digits.length; digitIndex += 1) {
+      carry += digits[digitIndex]! << 8;
+      digits[digitIndex] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  let result = "";
+  for (let leadingZero = 0; leadingZero < zeroes; leadingZero += 1) {
+    result += "1";
+  }
+  for (let digitIndex = digits.length - 1; digitIndex >= 0; digitIndex -= 1) {
+    result += BASE58_ALPHABET[digits[digitIndex]!];
+  }
+  return result;
+}
+
 async function uploadMetadata(draft: CryptoLaunchDraft): Promise<string> {
   const formData = new FormData();
   if (draft.logoUrl.startsWith("data:")) {
@@ -396,10 +425,27 @@ export async function submitCryptoLaunch(params: {
       transaction.sign([getServerSigner()]);
     }
 
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+    const rawTransaction = transaction.serialize();
+    let signature: string;
+    try {
+      signature = await connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: true,
+        maxRetries: 0,
+        preflightCommitment: "confirmed",
+      });
+    } catch (sendError) {
+      const sendMessage =
+        sendError instanceof Error ? sendError.message : String(sendError);
+      if (/already been processed|AlreadyProcessed/i.test(sendMessage)) {
+        signature = bs58Encode(transaction.signatures[0]);
+        console.warn(
+          "[crypto-launch] sendRawTransaction reported already-processed; treating as success",
+          { signature, message: sendMessage },
+        );
+      } else {
+        throw sendError;
+      }
+    }
     const confirmation = await connection.confirmTransaction(
       {
         signature,
